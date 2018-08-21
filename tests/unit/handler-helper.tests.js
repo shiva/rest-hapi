@@ -25,7 +25,7 @@ test('handler-helper exists and has expected members', function(t) {
   let Log = logger.bind('handler-helper')
   let handlerHelper = require('../../utilities/handler-helper')
 
-  t.plan(21)
+  t.plan(23)
   // </editor-fold>
 
   // <editor-fold desc="Assert">
@@ -36,6 +36,7 @@ test('handler-helper exists and has expected members', function(t) {
   t.ok(handlerHelper.deleteOne, 'handler-helper.deleteOne exists.')
   t.ok(handlerHelper.deleteMany, 'handler-helper.deleteMany exists.')
   t.ok(handlerHelper.update, 'handler-helper.update exists.')
+  t.ok(handlerHelper.upsert, 'handler-helper.upsert exists.')
   t.ok(handlerHelper.addOne, 'handler-helper.addOne exists.')
   t.ok(handlerHelper.removeOne, 'handler-helper.removeOne exists.')
   t.ok(handlerHelper.addMany, 'handler-helper.addMany exists.')
@@ -52,6 +53,7 @@ test('handler-helper exists and has expected members', function(t) {
     'handler-helper.deleteManyHandler exists.'
   )
   t.ok(handlerHelper.updateHandler, 'handler-helper.updateHandler exists.')
+  t.ok(handlerHelper.upsertHandler, 'handler-helper.upsertHandler exists.')
   t.ok(handlerHelper.addOneHandler, 'handler-helper.addOneHandler exists.')
   t.ok(
     handlerHelper.removeOneHandler,
@@ -3788,6 +3790,797 @@ test('handler-helper.updateHandler', function(t) {
                 })
             )
             // </editor-fold>
+          }
+        )
+      })
+  )
+})
+
+test('handler-helper.upsertHandler', function(t) {
+  return (
+    Q.when()
+
+      // handler-helper.upsertHandler calls pre processing if it exists
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls pre processing if it exists',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+            let preDeferred = Q.defer()
+            let preSpy = sandbox.spy(function() {
+              preDeferred.resolve()
+            })
+            userSchema.statics = {
+              routeOptions: {
+                upsert: {
+                  pre: preSpy
+                }
+              }
+            }
+
+            let userModel = mongoose.model('user', userSchema)
+            let query = { id: '_id' }
+            let payload = { name: 'TEST' }
+            let request = { query: query, payload: payload }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return preDeferred.promise
+              .then(function() {
+                t.ok(
+                  preSpy.calledWithExactly(query, payload, request, Log),
+                  'upsert.pre called'
+                )
+              })
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler calls model.findOneAndUpdate
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls model.findOneAndUpdate',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            let upsertDeferred = Q.defer()
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return upsertDeferred.resolve()
+            })
+
+            let query = { id: '_id' }
+            let payload = { field: 'value' }
+            let request = {
+              query: query,
+              payload: payload
+            }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return upsertDeferred.promise
+              .then(function() {
+                // use sinon.match to allow for added date fields
+                t.ok(
+                  userModel.findOneAndUpdate.calledWithExactly(
+                    sinon.match(query),
+                    sinon.match(payload),
+                    {
+                      upsert: true,
+                      runValidators: false
+                    }
+                  ),
+                  'model.findOneAndUpdate called'
+                )
+              })
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler calls model.findOneAndUpdate with runValidators: true
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls model.findOneAndUpdate with runValidators: true',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let config = { enableMongooseRunValidators: true }
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub,
+              '../config': config
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            let upsertDeferred = Q.defer()
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return upsertDeferred.resolve()
+            })
+
+            let query = { id: '_id' }
+            let payload = { field: 'value' }
+            let request = {
+              query: query,
+              payload: payload
+            }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return upsertDeferred.promise
+              .then(function() {
+                // use sinon.match to allow for added date fields
+                t.ok(
+                  userModel.findOneAndUpdate.calledWithExactly(
+                    sinon.match(query),
+                    sinon.match(payload),
+                    {
+                      upsert: true,
+                      runValidators: true
+                    }
+                  ),
+                  'model.called'
+                )
+              })
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler calls QueryHelper.createAttributesFilter
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls QueryHelper.createAttributesFilter',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            let deferred = Q.defer()
+            queryHelperStub.createAttributesFilter = sandbox.spy(function() {
+              return deferred.resolve()
+            })
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return Q.when({})
+            })
+
+            let request = { query: {}, payload: {} }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return deferred.promise
+              .then(function() {
+                // TODO this test previously expected createAttributesFilter to be called with request.query,
+                //      but the code currently calls it with a hard-coded {}
+                //      which is correct?
+                t.ok(
+                  queryHelperStub.createAttributesFilter.calledWithExactly(
+                    {},
+                    userModel,
+                    Log
+                  ),
+                  'queryHelperStub.createAttributesFilter called'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler calls model.findOne
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls model.findOne',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return Q.when({ _id: 'TEST' })
+            })
+            let deferred = Q.defer()
+            userModel.findOne = sandbox.spy(function() {
+              return deferred.resolve()
+            })
+
+            let request = { query: {}, payload: {} }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return deferred.promise
+              .then(function() {
+                t.ok(
+                  userModel.findOne.calledWithExactly(
+                    { _id: 'TEST' },
+                    'attributes'
+                  ),
+                  'model.findOne called'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler calls upsert.post if it exists
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls upsert.post if it exists',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+            let deferred = Q.defer()
+            let postSpy = sandbox.spy(function() {
+              return deferred.resolve()
+            })
+            userSchema.statics = {
+              routeOptions: {
+                upsert: {
+                  post: postSpy
+                }
+              }
+            }
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return Q.when({ _id: {} })
+            })
+            userModel.findOne = sandbox.spy(function() {
+              return {
+                lean: function() {
+                  return Q.when('TEST')
+                }
+              }
+            })
+
+            let request = { query: {}, payload: {} }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return deferred.promise
+              .then(function() {
+                t.ok(
+                  postSpy.calledWithExactly(request, 'TEST', Log),
+                  'upsert.post called'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler returns result
+      .then(function() {
+        return t.test('handler-helper.upsertHandler returns result', function(
+          t
+        ) {
+          let sandbox = sinon.sandbox.create()
+          let Log = logger.bind('handler-helper')
+          let server = sandbox.spy()
+          let queryHelperStub = sandbox.stub(
+            require('../../utilities/query-helper')
+          )
+
+          let handlerHelper = proxyquire('../../utilities/handler-helper', {
+            './query-helper': queryHelperStub
+          })
+          sandbox.stub(Log, 'error').callsFake(function() {})
+
+          let userSchema = new mongoose.Schema({})
+
+          let userModel = mongoose.model('user', userSchema)
+          userModel.findOneAndUpdate = sandbox.spy(function() {
+            return Q.when({ _id: {} })
+          })
+          userModel.findOne = sandbox.spy(function() {
+            return {
+              lean: function() {
+                return Q.when('3')
+              }
+            }
+          })
+
+          let request = { query: {}, payload: {} }
+
+          let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+          return promise
+            .then(function(result) {
+              t.equal(result, '3', 'returned result')
+            })
+
+            .then(function() {
+              sandbox.restore()
+              delete mongoose.models.user
+              delete mongoose.modelSchemas.user
+            })
+        })
+      })
+
+      // handler-helper.upsertHandler throws a generic postprocessing error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler throws a generic postprocessing error',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+            userSchema.statics = {
+              routeOptions: {
+                upsert: {
+                  post: function() {
+                    return Q.reject(new Error())
+                  }
+                }
+              }
+            }
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return Q.when({ _id: {} })
+            })
+            userModel.findOne = sandbox.spy(function() {
+              return {
+                lean: function() {
+                  return Q.when('TEST')
+                }
+              }
+            })
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'There was a postprocessing error updating the resource.',
+                  'threw a generic postprocessing error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler throws a custom postprocessing error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler throws a custom postprocessing error',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+            userSchema.statics = {
+              routeOptions: {
+                upsert: {
+                  post: function() {
+                    throw Boom.badRequest('error message')
+                  }
+                }
+              }
+            }
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return Q.when({ _id: {} })
+            })
+            userModel.findOne = sandbox.spy(function() {
+              return {
+                lean: function() {
+                  return Q.when('TEST')
+                }
+              }
+            })
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'error message',
+                  'threw a custom postprocessing error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler throws a not found error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler throws a not found error',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return Q.when()
+            })
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'No resource was found with that id.',
+                  'threw a not found error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler throws an upsert error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler throws an upsert error',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              throw Boom.badRequest('error message')
+            })
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'There was an error creating/updating the resource.',
+                  'threw an upsert error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler throws a generic preprocessing error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler throws a generic preprocessing error',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+            userSchema.statics = {
+              routeOptions: {
+                upsert: {
+                  pre: function() {
+                    return Q.reject(new Error())
+                  }
+                }
+              }
+            }
+
+            let userModel = mongoose.model('user', userSchema)
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'There was a preprocessing error creating/updating the resource.',
+                  'threw a generic preprocessing error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler throws a custom preprocessing error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler throws a custom preprocessing error',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+            userSchema.statics = {
+              routeOptions: {
+                upsert: {
+                  pre: function() {
+                    throw Boom.badRequest('error message')
+                  }
+                }
+              }
+            }
+
+            let userModel = mongoose.model('user', userSchema)
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'error message',
+                  'threw a custom preprocessing error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler throws a general processing error
+      .then(function() {
+        return t.test(
+          'handler-helper.upsert throws a processing error',
+          function(t) {
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+            queryHelperStub.createAttributesFilter = function() {
+              return 'attributes'
+            }
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+
+            sandbox.stub(userModel, 'findOneAndUpdate').callsFake(function() {
+              return {}
+            })
+            sandbox.stub(userModel, 'findOne').callsFake(function() {
+              throw new Error('ERROR')
+            })
+
+            let request = { query: {}, payload: {} }
+
+            let promise = handlerHelper.upsertHandler(userModel, request, Log)
+
+            return promise
+              .catch(function(error) {
+                t.equals(
+                  error.message,
+                  'There was an error processing the request.',
+                  'threw a general processing error'
+                )
+              })
+
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
           }
         )
       })

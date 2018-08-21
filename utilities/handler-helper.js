@@ -28,6 +28,10 @@ module.exports = {
 
   updateHandler: _updateHandler,
 
+  upsert: _upsert,
+
+  upsertHandler: _upsertHandler,
+
   deleteOne: _deleteOne,
 
   deleteOneHandler: _deleteOneHandler,
@@ -443,6 +447,7 @@ function _update(model, _id, payload, Log) {
   let request = { params: { _id: _id }, payload: payload }
   return _updateHandler(model, _id, request, Log)
 }
+
 /**
  * Updates a model document.
  * @param model: A mongoose model.
@@ -507,6 +512,105 @@ async function _updateHandler(model, _id, request, Log) {
           model.routeOptions.update.post
         ) {
           result = await model.routeOptions.update.post(request, result, Log)
+        }
+      } catch (err) {
+        handleError(
+          err,
+          'There was a postprocessing error updating the resource.',
+          Boom.badRequest,
+          Log
+        )
+      }
+      return result
+    } else {
+      throw Boom.notFound('No resource was found with that id.')
+    }
+  } catch (err) {
+    handleError(err, null, null, Log)
+  }
+}
+
+/**
+ * Upsert function exposed as a mongoose wrapper.
+ * @param model: A mongoose model.
+ * @param _id: The document id.
+ * @param payload: Data used to update/create the model document.
+ * @param Log: A logging object.
+ * @returns {object} A promise for the resulting model document.
+ * @private
+ */
+function _upsert(model, query, payload, Log) {
+  let request = { query: query, payload: payload }
+  return _upsertHandler(model, request, Log)
+}
+
+/**
+ * Creates/Updates a model document.
+ * @param model: A mongoose model.
+ * @param _id: The document id.
+ * @param request: The Hapi request object, or a container for the wrapper payload and query.
+ * @param Log: A logging object.
+ * @returns {object} A promise for the resulting model document.
+ * @private
+ */
+async function _upsertHandler(model, request, Log) {
+  let payload = Object.assign({}, request.payload)
+  let query = Object.assign({}, request.query)
+
+  try {
+    try {
+      if (
+        model.routeOptions &&
+        model.routeOptions.upsert &&
+        model.routeOptions.upsert.pre
+      ) {
+        payload = await model.routeOptions.upsert.pre(
+          query,
+          payload,
+          request,
+          Log
+        )
+      }
+    } catch (err) {
+      handleError(
+        err,
+        'There was a preprocessing error creating/updating the resource.',
+        Boom.badRequest,
+        Log
+      )
+    }
+
+    if (config.enableUpdatedAt) {
+      payload.updatedAt = new Date()
+    }
+    let result
+    try {
+      result = await model.findOneAndUpdate(query, payload, {
+        upsert: true,
+        runValidators: config.enableMongooseRunValidators
+      })
+    } catch (err) {
+      Log.error(err)
+      if (err.code === 11000) {
+        throw Boom.conflict('There was a duplicate key error.')
+      } else {
+        throw Boom.badImplementation(
+          'There was an error creating/updating the resource.'
+        )
+      }
+    }
+    if (result) {
+      let attributes = QueryHelper.createAttributesFilter({}, model, Log)
+
+      result = await model.findOne({ _id: result._id }, attributes).lean()
+
+      try {
+        if (
+          model.routeOptions &&
+          model.routeOptions.upsert &&
+          model.routeOptions.upsert.post
+        ) {
+          result = await model.routeOptions.upsert.post(request, result, Log)
         }
       } catch (err) {
         handleError(
