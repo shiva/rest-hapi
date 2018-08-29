@@ -27,6 +27,13 @@ module.exports = {
       case 'update':
         additionalScope = routeScope.updateScope
         break
+      case 'upsert':
+        additionalScope = [
+          routeScope.createScope,
+          routeScope.updateScope,
+          routeScope.readScope
+        ]
+        break
       case 'delete':
         additionalScope = routeScope.deleteScope
         break

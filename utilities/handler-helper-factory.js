@@ -74,6 +74,15 @@ module.exports = function() {
     generateUpdateHandler: generateUpdateHandler,
 
     /**
+     * Handles incoming PUT requests to /RESOURCE/
+     * @param model: A mongoose model.
+     * @param options: Options object.
+     * @param logger: A logging object.
+     * @returns {Function} A handler function
+     */
+    generateUpsertHandler: generateUpsertHandler,
+
+    /**
      * Handles incoming PUT requests to /OWNER_RESOURCE/{ownerId}/CHILD_RESOURCE/{childId}
      * @param ownerModel: A mongoose model.
      * @param association: An object containing the association data/child mongoose model.
@@ -241,6 +250,34 @@ function generateUpdateHandler(model, options, logger) {
         request,
         Log
       )
+      return h.response(result).code(200)
+    } catch (err) {
+      handleError(err, Log)
+    }
+  }
+}
+
+/**
+ * Handles incoming PUT requests to /RESOURCE/
+ * @param model: A mongoose model.
+ * @param options: Options object.
+ * @param logger: A logging object.
+ * @returns {Function} A handler function
+ */
+function generateUpsertHandler(model, options, logger) {
+  const Log = logger.bind()
+  options = options || {}
+
+  return async function(request, h) {
+    try {
+      Log.log(
+        'params(%s), query(%s), payload(%s)',
+        JSON.stringify(request.params),
+        JSON.stringify(request.query),
+        JSON.stringify(request.payload)
+      )
+
+      let result = await handlerHelper.upsertHandler(model, request, Log)
       return h.response(result).code(200)
     } catch (err) {
       handleError(err, Log)

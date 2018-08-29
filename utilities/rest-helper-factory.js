@@ -61,6 +61,14 @@ module.exports = function(logger, mongoose, server) {
           this.generateUpdateEndpoint(server, model, options, Log)
         }
 
+        if (
+          model.routeOptions.allowCreate &&
+          model.routeOptions.allowRead &&
+          model.routeOptions.allowUpdate
+        ) {
+          this.generateUpsertEndpoint(server, model, options, Log)
+        }
+
         if (model.routeOptions.allowDelete !== false) {
           this.generateDeleteOneEndpoint(server, model, options, Log)
           this.generateDeleteManyEndpoint(server, model, options, Log)
@@ -957,6 +965,147 @@ module.exports = function(logger, mongoose, server) {
               _id: Joi.objectId().required()
             },
             payload: updateModel,
+            headers: headersValidation
+          },
+          plugins: {
+            model: model,
+            'hapi-swagger': {
+              responseMessages: [
+                {
+                  code: 200,
+                  message: 'The resource was updated successfully.'
+                },
+                { code: 400, message: 'The request was malformed.' },
+                {
+                  code: 401,
+                  message:
+                    'The authentication header was missing/malformed, or the token has expired.'
+                },
+                {
+                  code: 404,
+                  message: 'There was no resource found with that ID.'
+                },
+                { code: 500, message: 'There was an unknown error.' },
+                { code: 503, message: 'There was a problem with the database.' }
+              ]
+            },
+            policies: policies
+          },
+          response: {
+            failAction: config.enableResponseFail ? 'error' : 'log',
+            schema: readModel
+          }
+        }
+      })
+    },
+
+    /**
+     * Creates an endpoint for PUT /RESOURCE/
+     * @param server: A Hapi server.
+     * @param model: A mongoose model.
+     * @param options: Options object.
+     * @param logger: A logging object.
+     */
+    generateUpsertEndpoint: function(server, model, options, logger) {
+      // This line must come first
+      validationHelper.validateModel(model, logger)
+      const Log = logger.bind(chalk.yellow('Update'))
+
+      let collectionName = model.collectionDisplayName || model.modelName
+      if (config.logRoutes) {
+        Log.note('Generating Upsert endpoint for ' + collectionName)
+      }
+
+      options = options || {}
+
+      let resourceAliasForRoute
+
+      if (model.routeOptions) {
+        resourceAliasForRoute = model.routeOptions.alias || model.modelName
+      } else {
+        resourceAliasForRoute = model.modelName
+      }
+
+      let handler = HandlerHelper.generateUpsertHandler(model, options, Log)
+
+      /* TODO: How to support upsert joi validation */
+      let queryModel = joiMongooseHelper.generateJoiListQueryModel(model, Log)
+      let updateModel = joiMongooseHelper.generateJoiUpdateModel(model, Log)
+      updateModel = computeJoiAlternatives(updateModel, config)
+
+      let readModel = joiMongooseHelper.generateJoiReadModel(model, Log)
+      readModel = computeJoiAlternatives(readModel, config)
+
+      let auth = false
+      if (config.authStrategy && model.routeOptions.updateAuth !== false) {
+        auth = {
+          strategy: config.authStrategy
+        }
+
+        let scope = authHelper.generateScopeForEndpoint(model, 'upsert', Log)
+
+        if (!_.isEmpty(scope)) {
+          auth.scope = scope
+          if (config.logScopes) {
+            Log.debug(
+              'Scope for PUT/' + resourceAliasForRoute + '/{_id}' + ':',
+              scope
+            )
+          }
+        }
+      } else {
+        headersValidation = null
+      }
+
+      /* 
+       * TODO: refactor policies for create and other methods and then use them here
+       */
+      let policies = []
+
+      if (model.routeOptions.policies && config.enablePolicies) {
+        policies = model.routeOptions.policies
+        policies = (policies.rootPolicies || [])
+          .concat(policies.updatePolicies || [])
+          .concat(policies.createPolicies || [])
+          .concat(policies.readPolicies || [])
+      }
+
+      if (config.enableDocumentScopes && auth) {
+        policies.push(restHapiPolicies.enforceDocumentScopePre(model, Log))
+        policies.push(restHapiPolicies.enforceDocumentScopePost(model, Log))
+      }
+
+      if (config.enableUpdatedBy) {
+        policies.push(restHapiPolicies.addUpdatedBy(model, Log))
+      }
+
+      if (config.enableDuplicateFields) {
+        policies.push(
+          restHapiPolicies.populateDuplicateFields(model, mongoose, Log)
+        )
+        if (config.trackDuplicatedFields) {
+          policies.push(
+            restHapiPolicies.trackDuplicatedFields(model, mongoose, Log)
+          )
+        }
+      }
+
+      if (config.enableAuditLog) {
+        policies.push(restHapiPolicies.logUpdate(mongoose, model, Log))
+      }
+
+      server.route({
+        method: 'PUT',
+        path: '/' + resourceAliasForRoute + '/{_id}',
+        config: {
+          handler: handler,
+          auth: auth,
+          cors: config.cors,
+          description: 'Upsert a ' + collectionName,
+          tags: ['api', collectionName],
+          validate: {
+            query: queryModel,
+            payload: updateModel /* TODO or should it be createModel or a combination */,
             headers: headersValidation
           },
           plugins: {
@@ -1965,4 +2114,13 @@ module.exports = function(logger, mongoose, server) {
       })
     }
   }
+}
+function computeJoiAlternatives(model, config) {
+  if (!config.enablePayloadValidation) {
+    let label = model._flags.label
+    model = Joi.alternatives()
+      .try(model, Joi.any())
+      .label(label)
+  }
+  return model
 }

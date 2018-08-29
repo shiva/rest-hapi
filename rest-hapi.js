@@ -36,6 +36,7 @@ module.exports = {
   find: handlerHelper.find,
   create: handlerHelper.create,
   update: handlerHelper.update,
+  upsert: handlerHelper.upsert,
   deleteOne: handlerHelper.deleteOne,
   deleteMany: handlerHelper.deleteMany,
   addOne: handlerHelper.addOne,

@@ -3853,12 +3853,11 @@ test('handler-helper.upsertHandler', function(t) {
         )
       })
 
-      // handler-helper.upsertHandler calls model.findOneAndUpdate
+      // handler-helper.upsertHandler calls model.findOneAndUpdate with no params
       .then(function() {
         return t.test(
-          'handler-helper.upsertHandler calls model.findOneAndUpdate',
+          'handler-helper.upsertHandler calls model.findOneAndUpdate with no params',
           function(t) {
-            // <editor-fold desc="Arrange">
             let sandbox = sinon.sandbox.create()
             let Log = logger.bind('handler-helper')
             let server = sandbox.spy()
@@ -3896,11 +3895,72 @@ test('handler-helper.upsertHandler', function(t) {
                     sinon.match(query),
                     sinon.match(payload),
                     {
+                      upsert: false,
+                      runValidators: false
+                    }
+                  ),
+                  'model.findOneAndUpdate called with upsert false'
+                )
+              })
+              .then(function() {
+                sandbox.restore()
+                delete mongoose.models.user
+                delete mongoose.modelSchemas.user
+              })
+          }
+        )
+      })
+
+      // handler-helper.upsertHandler calls model.findOneAndUpdate with upsert=true
+      .then(function() {
+        return t.test(
+          'handler-helper.upsertHandler calls model.findOneAndUpdate with upsert=true',
+          function(t) {
+            // <editor-fold desc="Arrange">
+            let sandbox = sinon.sandbox.create()
+            let Log = logger.bind('handler-helper')
+            let server = sandbox.spy()
+            let queryHelperStub = sandbox.stub(
+              require('../../utilities/query-helper')
+            )
+
+            let handlerHelper = proxyquire('../../utilities/handler-helper', {
+              './query-helper': queryHelperStub
+            })
+            sandbox.stub(Log, 'error').callsFake(function() {})
+
+            let userSchema = new mongoose.Schema({})
+
+            let userModel = mongoose.model('user', userSchema)
+            let upsertDeferred = Q.defer()
+            userModel.findOneAndUpdate = sandbox.spy(function() {
+              return upsertDeferred.resolve()
+            })
+
+            let query = { id: '_id' }
+            let payload = { field: 'value' }
+            let params = { upsert: true }
+            let request = {
+              params: params,
+              query: query,
+              payload: payload
+            }
+
+            handlerHelper.upsertHandler(userModel, request, Log)
+
+            return upsertDeferred.promise
+              .then(function() {
+                // use sinon.match to allow for added date fields
+                t.ok(
+                  userModel.findOneAndUpdate.calledWithExactly(
+                    sinon.match(query),
+                    sinon.match(payload),
+                    {
                       upsert: true,
                       runValidators: false
                     }
                   ),
-                  'model.findOneAndUpdate called'
+                  'model.findOneAndUpdate called with upsert=true'
                 )
               })
               .then(function() {
@@ -3942,7 +4002,9 @@ test('handler-helper.upsertHandler', function(t) {
 
             let query = { id: '_id' }
             let payload = { field: 'value' }
+            let params = { upsert: true }
             let request = {
+              params: params,
               query: query,
               payload: payload
             }
@@ -4001,7 +4063,7 @@ test('handler-helper.upsertHandler', function(t) {
               return Q.when({})
             })
 
-            let request = { query: {}, payload: {} }
+            let request = { params: {}, query: {}, payload: {} }
 
             handlerHelper.upsertHandler(userModel, request, Log)
 

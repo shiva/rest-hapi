@@ -539,8 +539,8 @@ async function _updateHandler(model, _id, request, Log) {
  * @returns {object} A promise for the resulting model document.
  * @private
  */
-function _upsert(model, query, payload, Log) {
-  let request = { query: query, payload: payload }
+function _upsert(model, query, payload, params, Log) {
+  let request = { query: query, payload: payload, params: params }
   return _upsertHandler(model, request, Log)
 }
 
@@ -556,6 +556,7 @@ function _upsert(model, query, payload, Log) {
 async function _upsertHandler(model, request, Log) {
   let payload = Object.assign({}, request.payload)
   let query = Object.assign({}, request.query)
+  let params = Object.assign({ upsert: false }, request.params)
 
   try {
     try {
@@ -586,7 +587,7 @@ async function _upsertHandler(model, request, Log) {
     let result
     try {
       result = await model.findOneAndUpdate(query, payload, {
-        upsert: true,
+        upsert: params.upsert,
         runValidators: config.enableMongooseRunValidators
       })
     } catch (err) {
